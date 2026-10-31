@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="bn"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>বাংলাদেশ ট্রাক ড্রাইভার</title>
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}canvas{display:block;width:100%;height:100%}</style>
+</head><body><canvas id="c"></canvas>
+<script>
+// ===== সেটিংস (এখানে বদলালেই গেম বদলাবে) =====
+const CFG={TOTAL_KM:10,STOP_EVERY:2,TOLL:100,FINAL_FEE:1000,SALE:10000,START_MONEY:2850,START_FUEL:72,TIME_SCALE:8,MAX_SPEED:80,CRASH_FINE:50,FUEL_PRICE:4,
+ FIREBASE_URL:'https://bangladeshtrucksimulator-default-rtdb.firebaseio.com' /* এখানে আপনার Firebase Realtime Database লিংক বসান, যেমন: https://আপনার-প্রজেক্ট-default-rtdb.firebaseio.com */};
+const LEGS=[{to:'ঢাকা',from:'চট্টগ্রাম',fin:'যাত্রাবাড়ী'},{to:'চট্টগ্রাম',from:'ঢাকা',fin:'নিউমার্কেট'}];
+const K=40,FONT='"Noto Sans Bengali","Kalpurush","Siyam Rupali",sans-serif';
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+let W=0,H=0,R=0;
+function resize(){const p=window.devicePixelRatio||1;W=innerWidth;H=innerHeight;cv.width=W*p;cv.height=H*p;ctx.setTransform(p,0,0,p,0,0);R=Math.min(H*0.22,W*0.14);}
+addEventListener('resize',resize);resize();
+const bn=n=>String(n).replace(/\d/g,c=>'০১২৩৪৫৬৭৮৯'[c]);
+const fm=n=>bn(Math.round(n).toLocaleString('en-US'));
+function rnd(i){const x=Math.sin(i*127.1)*43758.5453;return x-Math.floor(x);}
+function T(t,x,y,s,c,a,b){ctx.font=(b===false?'':'bold ')+s+'px '+FONT;ctx.fillStyle=c||'#fff';ctx.textAlign=a||'left';ctx.textBaseline='middle';ctx.fillText(t,x,y);}
+function rr(x,y,w,h,r,f,st,lw){ctx.beginPath();ctx.roundRect?ctx.roundRect(x,y,w,h,r):ctx.rect(x,y,w,h);if(f){ctx.fillStyle=f;ctx.fill();}if(st){ctx.strokeStyle=st;ctx.lineWidth=lw||2;ctx.stroke();}}
+
+// ===== বিশ্ব তৈরি =====
+const objs=[];
+for(let i=0;i<=CFG.TOTAL_KM/0.02+20;i++){for(const side of[-1,1]){const r=rnd(i*2+side+5);const t=r<.3?'shop':r<.62?'tree':r<.82?'person':'none';if(t==='none')continue;
+ objs.push({k:i*0.02+rnd(i+side*9)*0.015,lat:side*(t==='person'?1.25+rnd(i)*.5:1.4+rnd(i*3+side)*1.6),t,c:Math.floor(rnd(i+side*7)*4)});}}
+function gateKms(){const a=[];for(let k=CFG.STOP_EVERY;k<CFG.TOTAL_KM-1e-6;k+=CFG.STOP_EVERY)a.push(k);a.push(CFG.TOTAL_KM);return a;}
+const G=gateKms();
+
+// ===== প্লেয়ার ও লিডারবোর্ড =====
+let PN='',DID='';try{PN=localStorage.getItem('tk_name')||'';DID=localStorage.getItem('tk_id')||'';if(!DID){DID=Math.random().toString(36).slice(2,8);localStorage.setItem('tk_id',DID);}}catch(e){DID=Math.random().toString(36).slice(2,8);}
+function askName(){if(PN)return;const n=(prompt('আপনার নাম লিখুন (লিডারবোর্ডে দেখা যাবে):')||'').trim().slice(0,16);PN=n||'খেলোয়াড়';try{localStorage.setItem('tk_name',PN);}catch(e){}}
+const FB=CFG.FIREBASE_URL.replace(/\/$/,'');
+const pkey=()=>(PN.replace(/[.#$\[\]\/\s]/g,'_')+'_'+DID).slice(0,40);
+function submit(){if(!FB||!PN)return;S.best=Math.max(S.best||0,S.money);fetch(FB+'/scores/'+encodeURIComponent(pkey())+'.json',{method:'PUT',body:JSON.stringify({name:PN,score:Math.round(S.best),trips:S.trips,ts:Date.now()})}).catch(()=>{});}
+function showBoard(back){
+ if(!FB){S.popup={title:'🏆 লিডারবোর্ড',lines:['Firebase লিংক সেট করা নেই'],btn:'ফিরে যান',fn:back};return;}
+ S.popup={title:'🏆 লিডারবোর্ড',lines:['লোড হচ্ছে...'],btn:'ফিরে যান',fn:back,board:1};
+ fetch(FB+'/scores.json?orderBy=%22score%22&limitToLast=10').then(r=>r.json()).then(d=>{const a=Object.values(d||{}).sort((x,y)=>y.score-x.score);
+  if(S.popup&&S.popup.board)S.popup.lines=a.length?a.map((o,i)=>bn(i+1)+'. '+o.name+' — ৳'+fm(o.score)+' ('+bn(o.trips)+' যাত্রা)'):['এখনও কেউ খেলেনি'];}).catch(()=>{if(S.popup&&S.popup.board)S.popup.lines=['লোড করা যায়নি'];});}
+function menuPopup(){return{title:'বাংলাদেশ ট্রাক ড্রাইভার',lines:['ঢাকা ↔ চট্টগ্রাম — পথে পথে চাঁদা!','স্টিয়ারিং ঘুরান, গ্যাস ও ব্রেক চাপুন'],btn:'খেলা শুরু করুন',fn:()=>{askName();S.popup=null;},btn2:'🏆 লিডারবোর্ড',fn2:()=>showBoard(()=>{S.popup=menuPopup();})};}
+
+// ===== অবস্থা =====
+let S;
+function reset(){S={d:0,sp:0,car:0,steer:0,fuel:CFG.START_FUEL,money:CFG.START_MONEY,leg:0,gi:0,trips:0,popup:null,paused:false,msg:'',msgT:0,time:0};
+ S.popup=menuPopup();}
+reset();
+function toast(m){S.msg=m;S.msgT=3;}
+function over(why){submit();S.popup={title:'গেম ওভার',lines:[why,'মোট সম্পন্ন যাত্রা: '+bn(S.trips),'শেষ টাকা: ৳'+fm(S.money)],btn:'আবার খেলুন',fn:()=>{reset();S.popup=null;},btn2:'🏆 লিডারবোর্ড',fn2:()=>showBoard(()=>over(why)),red:true};}
+function pay(a,next){if(S.money<a){over('চাঁদা দেওয়ার মতো টাকা নেই!');return;}S.money-=a;next();}
+function openGate(){
+ const fin=S.gi===G.length-1,L=LEGS[S.leg];
+ if(!fin){S.popup={title:'চাঁদা দাও',lines:['আপনার ট্রাকটি স্টপেজে থামানো হয়েছে।','যাত্রা চালিয়ে যেতে '+bn(CFG.TOLL)+' টাকা প্রদান করুন।'],btn:'✔ '+bn(CFG.TOLL)+' টাকা দাও',amt:CFG.TOLL,red:true,fn:()=>pay(CFG.TOLL,()=>{S.gi++;S.d=G[S.gi-1]+0.004;S.popup=null;})};}
+ else{S.popup={title:L.fin+' চাঁদা',lines:[L.to+' পৌঁছে গেছেন!','বাজারে ঢুকতে '+bn(CFG.FINAL_FEE)+' টাকা চাঁদা দিন।'],btn:'✔ '+fm(CFG.FINAL_FEE)+' টাকা দাও',amt:CFG.FINAL_FEE,red:true,fn:()=>pay(CFG.FINAL_FEE,sell)};}
+}
+function sell(){
+ S.money+=CFG.SALE;S.trips++;
+ const need=Math.round((100-S.fuel)*CFG.FUEL_PRICE),cost=Math.min(need,S.money);
+ S.money-=cost;S.fuel=Math.min(100,S.fuel+cost/CFG.FUEL_PRICE);submit();
+ const nxt=LEGS[(S.leg+1)%2];
+ S.popup={title:'মাল বিক্রি সম্পন্ন!',lines:['বিক্রি: +৳'+fm(CFG.SALE)+'   ফুয়েল খরচ: -৳'+fm(cost),'এখন '+nxt.from+' থেকে মাল নিয়ে '+nxt.to+' যান।'],btn:'পরের যাত্রা শুরু করুন',green:true,fn:()=>{S.leg=(S.leg+1)%2;S.d=0;S.gi=0;S.sp=0;S.car=0;S.popup=null;}};
+}
+
+// ===== ইনপুট =====
+const keys={},ptr={};let steerT=0;
+addEventListener('keydown',e=>keys[e.key.toLowerCase()]=1);addEventListener('keyup',e=>keys[e.key.toLowerCase()]=0);
+const wc=()=>({x:R*1.35,y:H-R*1.35});
+const gasR=()=>{const w=R*0.8,h=R*1.05;return{x:W-w-16,y:H-h-16,w,h};};
+const brkR=()=>{const g=gasR();return{x:g.x-g.w-16,y:g.y+g.h*0.1,w:g.w,h:g.h*0.9};};
+const pauseR=()=>({x:W-50,y:70,w:40,h:40});
+let btns=[];
+const inR=(p,r)=>p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h;
+cv.addEventListener('pointerdown',e=>{e.preventDefault();const p={x:e.clientX,y:e.clientY};
+ for(const b of btns)if(inR(p,b)){b.fn();return;}
+ let role=null;const c=wc();
+ if(Math.hypot(p.x-c.x,p.y-c.y)<R*1.4)role='wheel';else if(inR(p,gasR()))role='gas';else if(inR(p,brkR()))role='brake';else if(inR(p,pauseR())){S.paused=!S.paused;return;}
+ ptr[e.pointerId]={x:p.x,y:p.y,role};cv.setPointerCapture&&cv.setPointerCapture(e.pointerId);});
+cv.addEventListener('pointermove',e=>{const o=ptr[e.pointerId];if(!o)return;o.x=e.clientX;o.y=e.clientY;});
+const up=e=>{delete ptr[e.pointerId];};
+cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+
+// ===== আপডেট =====
+function update(dt){
+ S.time+=dt;if(S.msgT>0)S.msgT-=dt;
+ let gas=!!(keys['arrowup']||keys['w']),brake=!!(keys['arrowdown']||keys['s']),wheel=null;
+ for(const id in ptr){const o=ptr[id];if(o.role==='gas')gas=true;else if(o.role==='brake')brake=true;else if(o.role==='wheel')wheel=o;}
+ steerT=wheel?Math.max(-1,Math.min(1,(wheel.x-wc().x)/R)):((keys['arrowleft']||keys['a'])?-1:0)+((keys['arrowright']||keys['d'])?1:0);
+ S.steer+=(steerT-S.steer)*Math.min(1,dt*10);
+ if(S.popup||S.paused){S.sp=Math.max(0,S.sp-60*dt);if(S.popup)return;if(S.paused)return;}
+ const off=Math.abs(S.car)>1.1,cap=off?25:CFG.MAX_SPEED;
+ if(S.fuel<=0){gas=false;}
+ if(gas)S.sp+=28*dt;else S.sp-=6*dt;
+ if(brake)S.sp-=70*dt;
+ S.sp=Math.max(0,Math.min(cap,S.sp>cap?S.sp-40*dt:S.sp));
+ S.car+=S.steer*dt*(S.sp/55)*1.1;S.car=Math.max(-2.2,Math.min(2.2,S.car));
+ S.d+=S.sp/3600*dt*CFG.TIME_SCALE;
+ S.fuel=Math.max(0,S.fuel-S.sp*dt*0.0045);
+ if(S.fuel<=0&&S.sp<1){over('ফুয়েল শেষ হয়ে গেছে!');return;}
+ const gk=G[S.gi];
+ if(S.d>=gk-0.003){S.d=gk-0.003;if(S.sp>15){S.money=Math.max(0,S.money-CFG.CRASH_FINE);toast('ব্যারিয়ারে ধাক্কা! জরিমানা ৳'+bn(CFG.CRASH_FINE));}S.sp=0;openGate();}
+}
+
+// ===== আঁকা =====
+function person(x,y,L,c){const h=L*0.55,cl=['#c0392b','#2980b9','#f1c40f','#ecf0f1'][c];ctx.fillStyle=cl;ctx.fillRect(x-h*.14,y-h*.65,h*.28,h*.45);ctx.fillStyle='#222';ctx.fillRect(x-h*.12,y-h*.2,h*.24,h*.2);ctx.fillStyle='#d9a066';ctx.beginPath();ctx.arc(x,y-h*.78,h*.12,0,7);ctx.fill();}
+function shop(x,y,L,c){const w=L*1.1,h=L*0.75,aw=['#2980b9','#e67e22','#27ae60','#c0392b'][c];ctx.fillStyle='#8d6e4a';ctx.fillRect(x-w/2,y-h,w,h);ctx.fillStyle=aw;ctx.fillRect(x-w/2-L*.05,y-h,w+L*.1,h*.28);ctx.fillStyle='#ffd54f';for(let i=0;i<4;i++){ctx.beginPath();ctx.arc(x-w*.35+i*w*.23,y-h*.32,L*.07,0,7);ctx.fill();}ctx.fillStyle='#e74c3c';ctx.fillRect(x-w*.4,y-h*.2,w*.8,h*.1);}
+function tree(x,y,L,c){ctx.fillStyle='#6d4c2f';ctx.fillRect(x-L*.06,y-L*.8,L*.12,L*.8);ctx.fillStyle=c%2?'#2e7d32':'#43a047';ctx.beginPath();ctx.arc(x,y-L*1.05,L*.45,0,7);ctx.arc(x-L*.28,y-L*.85,L*.32,0,7);ctx.arc(x+L*.28,y-L*.85,L*.32,0,7);ctx.fill();}
+function gate(y,L,cx,fin,label){
+ ctx.fillStyle='#8a8f98';ctx.fillRect(cx-1.25*L,y-1.2*L,L*.14,1.2*L);ctx.fillRect(cx+1.11*L,y-1.2*L,L*.14,1.2*L);
+ ctx.fillStyle='#c62828';ctx.fillRect(cx-1.25*L,y-1.3*L,2.5*L,L*.3);
+ if(L>25)T(label,cx,y-1.15*L,L*.22,'#fff','center');
+ ctx.fillStyle='#d7ccc8';ctx.fillRect(cx-1.6*L,y-.55*L,.35*L,.55*L);ctx.fillRect(cx+1.25*L,y-.55*L,.35*L,.55*L);
+ const bh=L*.07,y0=y-.45*L,seg=10,w=2.2*L/seg;
+ for(let i=0;i<seg;i++){ctx.fillStyle=i%2?'#fff':'#e53935';ctx.fillRect(cx-1.1*L+i*w,y0,w,bh);}
+ for(let i=0;i<3;i++)person(cx-1.5*L+i*L*.9+(i>1?L*.6:0),y,L,i+1);
+ ctx.fillStyle='#e53935';ctx.beginPath();ctx.arc(cx-1.55*L,y-.9*L,L*.22,0,7);ctx.fill();if(L>25)T('STOP',cx-1.55*L,y-.9*L,L*.12,'#fff','center');
+}
+function truck(){
+ const tw=Math.min(W*0.24,H*0.5),th=tw*1.3,tx=W/2,by=H*0.95+Math.sin(S.time*14)*S.sp*0.015;
+ ctx.save();ctx.translate(tx,by);ctx.rotate(S.steer*0.03*Math.min(1,S.sp/40));
+ ctx.fillStyle='rgba(0,0,0,.3)';ctx.beginPath();ctx.ellipse(0,0,tw*.6,th*.06,0,0,7);ctx.fill();
+ rr(-tw*.5,-th*.98,tw,th*.5,tw*.05,'#1565c0');
+ ctx.fillStyle='#c8964f';for(let r=0;r<2;r++)for(let c=0;c<3;c++)rr(-tw*.43+c*tw*.29,-th*.95+r*th*.19,tw*.28,th*.17,tw*.04,'#c8964f','#8d6a35',2);
+ rr(-tw*.5,-th*.66,tw,th*.17,tw*.03,'#1976d2');
+ ctx.strokeStyle='#d7b27a';ctx.lineWidth=2;for(let i=1;i<4;i++){ctx.beginPath();ctx.moveTo(-tw*.5+i*tw*.25,-th*.98);ctx.lineTo(-tw*.5+i*tw*.25,-th*.48);ctx.stroke();}
+ rr(-tw*.5,-th*.5,tw,th*.36,tw*.02,'#0d3b7a','#ffb300',4);
+ for(const sx of[-1,1]){const fx=sx*tw*.35,fy=-th*.32;ctx.fillStyle='#d32f2f';ctx.beginPath();for(let i=0;i<8;i++){const a=i*Math.PI/4;ctx.arc(fx+Math.cos(a)*tw*.07,fy+Math.sin(a)*tw*.07,tw*.06,0,7);}ctx.fill();ctx.fillStyle='#ffd54f';ctx.beginPath();ctx.arc(fx,fy,tw*.04,0,7);ctx.fill();ctx.fillStyle='#43a047';ctx.fillRect(fx-tw*.1,fy+tw*.11,tw*.2,tw*.03);}
+ rr(-tw*.24,-th*.43,tw*.48,th*.2,tw*.02,'#1565c0','#fff',2);T('বাংলাদেশ',0,-th*.33,tw*.12,'#fff','center');
+ const g=ctx.createLinearGradient(-tw*.5,0,tw*.5,0);g.addColorStop(0,'#e53935');g.addColorStop(.5,'#fdd835');g.addColorStop(1,'#43a047');
+ ctx.fillStyle=g;ctx.fillRect(-tw*.5,-th*.14,tw,th*.08);
+ ctx.fillStyle=S.sp<1||keys['arrowdown']?'#ff1744':'#b71c1c';ctx.fillRect(-tw*.47,-th*.14,tw*.1,th*.05);ctx.fillRect(tw*.37,-th*.14,tw*.1,th*.05);
+ ctx.fillStyle='#111';ctx.fillRect(-tw*.44,-th*.06,tw*.2,th*.06);ctx.fillRect(tw*.24,-th*.06,tw*.2,th*.06);
+ ctx.restore();
+}
+function draw(){
+ const hor=H*0.36,roadH=H-hor,Lb=W*0.34;
+ let g=ctx.createLinearGradient(0,0,0,hor);g.addColorStop(0,'#3d8fe0');g.addColorStop(1,'#bfe3ff');ctx.fillStyle=g;ctx.fillRect(0,0,W,hor);
+ ctx.fillStyle='rgba(255,255,255,.85)';for(let i=0;i<5;i++){const cx=((i*W*.27+S.time*6)%(W+200))-100,cy=hor*(.15+.12*(i%3));ctx.beginPath();ctx.arc(cx,cy,28,0,7);ctx.arc(cx+30,cy+5,22,0,7);ctx.arc(cx-28,cy+6,20,0,7);ctx.fill();}
+ ctx.fillStyle='#4d8f3f';ctx.beginPath();ctx.ellipse(W*.25,hor,W*.35,hor*.09,0,Math.PI,0);ctx.ellipse(W*.8,hor,W*.3,hor*.07,0,Math.PI,0);ctx.fill();
+ g=ctx.createLinearGradient(0,hor,0,H);g.addColorStop(0,'#5fae4a');g.addColorStop(1,'#3d8a31');ctx.fillStyle=g;ctx.fillRect(0,hor,W,roadH);
+ const poly=(m,c)=>{ctx.fillStyle=c;ctx.beginPath();ctx.moveTo(W/2,hor);ctx.lineTo(W/2+(m-S.car)*Lb,H);ctx.lineTo(W/2+(-m-S.car)*Lb,H);ctx.fill();};
+ poly(1.3,'#b8996b');poly(1,'#3a3e44');
+ for(let y=hor+2;y<H;y+=3){const s=(y-hor)/roadH,r=(1/s-1)/K,w=S.d+r,L=Lb*s,cx=W/2-S.car*L;
+  if(((w/0.02)%1)<0.5){ctx.fillStyle='#fff';ctx.fillRect(cx-L*.015,y,L*.03,3);}
+  ctx.fillStyle=(Math.floor(w/0.008)%2)?'#fff':'#222';ctx.fillRect(cx-L*1.07,y,L*.07,3);ctx.fillRect(cx+L,y,L*.07,3);}
+ const gk=G[S.gi],gr=gk-S.d;
+ for(let i=objs.length-1;i>=0;i--){const o=objs[i],r=o.k-S.d;if(r<-0.004||r>0.3)continue;
+  const s=1/(1+r*K),y=hor+roadH*s,L=Lb*s,x=W/2+(o.lat-S.car)*L;if(L<3)continue;
+  (o.t==='shop'?shop:o.t==='tree'?tree:person)(x,y,L,o.c);}
+ if(gr<0.3&&gr>-0.01){const s=1/(1+Math.max(gr,0)*K),y=hor+roadH*s,L=Lb*s;gate(y,L,W/2-S.car*L,S.gi===G.length-1,S.gi===G.length-1?LEGS[S.leg].fin+' চাঁদা':'চাঁদা স্টপেজ');}
+ truck();
+ // HUD
+ rr(10,10,Math.min(230,W*.3),92,12,'rgba(20,28,38,.8)');
+ const fs=Math.min(18,H*.045);
+ T('গতি: '+bn(Math.round(S.sp))+' কিমি/ঘ',24,28,fs);T('দূরত্ব: ',24,54,fs);T(bn(S.d.toFixed(2))+' কিমি',24+fs*3.2,54,fs,'#ffd54f');T('ফুয়েল: '+bn(Math.round(S.fuel))+'%',24,80,fs,S.fuel<20?'#ff5252':'#fff');
+ const mw=Math.min(210,W*.28);rr(W-mw-10,10,mw,50,12,'rgba(20,28,38,.8)');T('৳ '+fm(S.money),W-mw+8,35,fs*1.5,'#fff');
+ rr(W/2-W*.17,8,W*.34,50,8,'#1b7f3b','#fff',2);const L=LEGS[S.leg];T(L.from+' → '+L.to,W/2,24,fs*.95,'#fff','center');
+ T((S.gi===G.length-1?L.fin:'পরবর্তী স্টপেজ')+': '+bn(Math.max(0,gr).toFixed(1))+' কিমি',W/2,45,fs*.8,'#c8f7c5','center');
+ const pr=pauseR();rr(pr.x,pr.y,pr.w,pr.h,8,'rgba(20,28,38,.8)');T(S.paused?'▶':'❚❚',pr.x+20,pr.y+20,16,'#fff','center');
+ if(S.msgT>0)T(S.msg,W/2,H*.2,fs*1.3,'#ff8a80','center');
+ // স্টিয়ারিং
+ const c=wc();ctx.save();ctx.translate(c.x,c.y);ctx.rotate(S.steer*1.3);
+ ctx.strokeStyle='#1a1a1a';ctx.lineWidth=R*.2;ctx.beginPath();ctx.arc(0,0,R*.9,0,7);ctx.stroke();ctx.lineWidth=R*.14;
+ for(const a of[Math.PI,0,Math.PI/2]){ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(Math.cos(a)*R*.85,Math.sin(a)*R*.85);ctx.stroke();}
+ ctx.fillStyle='#444';ctx.beginPath();ctx.arc(0,0,R*.28,0,7);ctx.fill();ctx.fillStyle='#bbb';ctx.beginPath();ctx.arc(0,0,R*.16,0,7);ctx.fill();
+ ctx.fillStyle='#ffd54f';ctx.fillRect(-R*.03,-R*1.0,R*.06,R*.12);ctx.restore();
+ // গ্যাস ও ব্রেক
+ const ga=gasR(),br=brkR(),gp=Object.values(ptr).some(o=>o.role==='gas')||keys['arrowup']||keys['w'],bp=Object.values(ptr).some(o=>o.role==='brake')||keys['arrowdown']||keys['s'];
+ rr(br.x,br.y,br.w,br.h,14,bp?'#9e9e9e':'#cfd2d6','#555',3);rr(br.x+br.w*.1,br.y+br.h*.62,br.w*.8,br.h*.26,8,'#222');T('BRAKE',br.x+br.w/2,br.y+br.h*.75,br.w*.2,'#fff','center');
+ rr(ga.x,ga.y,ga.w,ga.h,14,gp?'#2e9e4a':'#43c463','#1b5e20',3);rr(ga.x+ga.w*.1,ga.y+ga.h*.72,ga.w*.8,ga.h*.22,8,'#14532d');T('GAS',ga.x+ga.w/2,ga.y+ga.h*.83,ga.w*.22,'#fff','center');
+ // পপআপ
+ btns=[];
+ if(S.paused&&!S.popup){ctx.fillStyle='rgba(0,0,0,.5)';ctx.fillRect(0,0,W,H);T('বিরতি — ▶ চাপুন',W/2,H/2,28,'#fff','center');}
+ if(S.popup){const p=S.popup;ctx.fillStyle='rgba(0,0,0,.45)';ctx.fillRect(0,0,W,H);
+  const pw=Math.min(W*.8,560),ph=p.board?Math.min(H*.92,380):Math.min(H*.7,260),px=(W-pw)/2,py=(H-ph)/2;
+  rr(px,py,pw,ph,16,'#1b2430','#556',2);rr(px+pw*.08,py+12,pw*.84,ph*.2,10,p.green?'#2e7d32':p.red?'#b71c1c':'#1565c0');
+  T((p.red?'❗ ':'')+p.title,W/2,py+12+ph*.1,ph*.12,'#fff','center');
+  p.lines.forEach((t,i)=>p.board?T(t,W/2,py+ph*.3+i*ph*.062,ph*.05,'#e8eef5','center',false):T(t,W/2,py+ph*.4+i*ph*.13,ph*.075,'#e8eef5','center',false));
+  const bl=[[p.btn,p.fn]];if(p.btn2)bl.push([p.btn2,p.fn2]);const n=bl.length,gw=pw*.86,bw=(gw-(n-1)*10)/n,by=py+ph*(p.board?.86:.72),bh=ph*(p.board?.1:.18);
+  bl.forEach((q,k)=>{const b={x:px+pw*.07+k*(bw+10),y:by,w:bw,h:bh,fn:q[1]};rr(b.x,b.y,b.w,b.h,10,p.green?'#2e7d32':k?'#1565c0':'#2eaa4f','#9be7a8',2);T(q[0],b.x+bw/2,b.y+bh/2,Math.min(ph*.085,bw*.11),'#fff','center');btns.push(b);});}
+}
+let last=performance.now();
+function loop(t){const dt=Math.min(.05,(t-last)/1000);last=t;update(dt);draw();requestAnimationFrame(loop);}
+requestAnimationFrame(loop);
+</script></body></html>
